@@ -1,0 +1,48 @@
+# ── Python ──────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ── Entornos virtuales ──────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Pesos del modelo (descargar aparte, ~330 MB) ────────────────────
+*.pth
+*.pt
+*.ckpt
+ckpt/
+AudioMAE/ckpt/
+
+# ── Repositorio oficial clonado (se clona aparte) ───────────────────
+AudioMAE/
+
+# ── Audio y datos temporales ────────────────────────────────────────
+*.wav
+*.mp3
+*.flac
+*.ogg
+
+# ── Jupyter ─────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── Streamlit ───────────────────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── Editores e IDEs ─────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+
+# ── Sistema operativo ───────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
