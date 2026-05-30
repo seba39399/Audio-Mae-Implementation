@@ -85,7 +85,7 @@ ENCODER (ViT-Base, 12 capas, dim 768, 12 cabezas)
    |
    Latentes de los parches visibles
    |
-DECODER (Transformer ligero, dim 512)
+DECODER (Transformer, 16 capas, dim 512, atención local con ventanas desplazadas)
    Recibe los latentes + "mask tokens" en las posiciones ocultas
    Reordena la secuencia y reconstruye cada parche oculto
    |
@@ -142,9 +142,14 @@ separan en Q, K y V.
 2. **Encoder asimétrico y eficiente.** El encoder solo procesa los parches visibles, no los ocultos,
    reduciendo el cómputo alrededor de un 75 %. Esto permite usar un encoder grande (ViT-Base) a un
    costo razonable.
-3. **Decoder con atención local (shifted window).** Como en un espectrograma la posición en tiempo y
-   frecuencia sí importa (a diferencia de los objetos en una imagen), el decoder usa atención por
-   ventanas locales desplazadas, lo que mejora la reconstrucción de armónicos y formantes.
+3. **Decoder profundo con atención local (shifted window).** A diferencia del MAE de imágenes (que
+   usa un decoder pequeño de 8 capas con atención global), Audio-MAE emplea un decoder de **16 capas**
+   con atención por ventanas locales desplazadas. La razón: en un espectrograma la posición en tiempo
+   y frecuencia sí importa (formantes y armónicos están agrupados localmente), por lo que la atención
+   local es más adecuada que la global. Como cada capa atiende solo a una ventana pequeña (4×4 parches
+   en lugar de los 64×8 globales), se pueden apilar más capas con poco costo extra, lo que mejora la
+   reconstrucción. El paper muestra que con atención global lo óptimo serían 8 capas, pero con atención
+   local lo es 16.
 4. **Pre-entrenamiento solo con audio.** No depende de datos de imagen (ImageNet); los autores muestran
    que el pre-entrenamiento dentro del mismo dominio (audio) da mejores resultados que transferir desde
    imágenes.
