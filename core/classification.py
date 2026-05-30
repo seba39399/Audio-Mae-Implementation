@@ -73,18 +73,28 @@ def load_finetuned_head(checkpoint_path: str, device: torch.device) -> Optional[
         ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         state = ckpt.get("model", ckpt)
 
-        # Extraer solo los pesos de la cabeza
-        head_state = {
-            k.replace("head.", ""): v
-            for k, v in state.items()
-            if k.startswith("head.")
-        }
+        # El checkpoint guarda la cabeza como "head.weight" / "head.bias"
+        # pero AudioClassifier espera "head.weight" bajo self.head → mapear a eso
+        head_state = {}
+        for k, v in state.items():
+            if k.startswith("head."):
+                # "head.weight" → "head.weight"  (ya correcto para self.head)
+                new_key = k  # mantener tal cual
+                head_state[new_key] = v
+
+        # Fallback: si las claves son solo "weight"/"bias" sin prefijo
+        if not head_state:
+            for k, v in state.items():
+                if k in ("weight", "bias"):
+                    head_state[f"head.{k}"] = v
 
         if not head_state:
+            print("[classification] No se encontraron claves de cabeza en el checkpoint.")
             return None
 
         classifier = AudioClassifier(EMBEDDING_DIM, NUM_CLASSES)
-        classifier.load_state_dict(head_state, strict=True)
+        msg = classifier.load_state_dict(head_state, strict=False)
+        print(f"[classification] Cabeza cargada. Missing: {msg.missing_keys}, Unexpected: {msg.unexpected_keys}")
         classifier.to(device)
         classifier.eval()
         return classifier
