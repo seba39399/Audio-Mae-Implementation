@@ -1,190 +1,188 @@
-# AudioMAE — Implementación de Inferencia con Interfaz Interactiva
+# AudioMAE — Inference Implementation with an Interactive Interface
 
-**Procesamiento de Datos Secuenciales - Proyecto Final**
+Valentina Lopez Maldonado - Yerson David Rozo - Juan Sebastián Peña
 
-Integrantes: Valentina Lopez Maldonado - Yerson David Rozo - Juan Sebastián Peña
-
-Implementación del modelo **AudioMAE (Masked Autoencoders that Listen, NeurIPS 2022)** para
-inferencia, con una interfaz gráfica en Streamlit que permite cargar audio y observar el
-funcionamiento del modelo en dos tareas: reconstrucción de espectrogramas y clasificación de sonidos.
+Implementation of the **AudioMAE (Masked Autoencoders that Listen, NeurIPS 2022)** model for
+inference, with a graphical interface in Streamlit that allows users to upload audio and observe the
+model’s performance on two tasks: spectrogram reconstruction and sound classification.
 
 ---
 
-## 1. Resumen (Abstract)
+## 1. Abstract
 
-Este trabajo aplica la arquitectura Transformer encoder–decoder **AudioMAE** a una tarea de
-procesamiento de datos secuenciales de audio. AudioMAE es un autoencoder enmascarado (Masked
-Autoencoder) que aprende representaciones de audio de forma auto-supervisada: convierte una grabación
-en un mel-espectrograma, lo divide en parches, oculta una gran fracción de ellos (típicamente 75–80 %)
-y entrena un encoder–decoder Transformer para reconstruir las partes ocultas.
+This work applies the **AudioMAE** Transformer encoder–decoder architecture to a task involving
+the processing of sequential audio data. AudioMAE is a masked autoencoder (Masked
+Autoencoder) that learns audio representations in a self-supervised manner: it converts a recording
+into a mel-spectrogram, divides it into patches, masks a large fraction of them (typically 75–80%)
+, and trains a Transformer encoder–decoder to reconstruct the masked parts.
 
-No se entrena el modelo desde cero. Se **reutilizan los pesos pre-entrenados** publicados por los
-autores (encoder ViT-Base entrenado sobre AudioSet-2M, unos 2 millones de clips de YouTube) y se
-implementa únicamente el **proceso de inferencia**. La solución incluye una interfaz en Streamlit con
-tres secciones: reconstrucción de audio (tarea generativa), clasificación a partir de los embeddings
-del encoder, y una explicación interactiva de la arquitectura.
+The model is not trained from scratch. **Pre-trained weights** published by the
+authors (a ViT-Base encoder trained on AudioSet-2M, approximately 2 million YouTube clips) are reused, and
+only the **inference process** is implemented. The solution includes a Streamlit interface with
+three sections: audio reconstruction (generative task), classification based on the encoder’s
+embeddings, and an interactive explanation of the architecture.
 
-Como resultado, el modelo es capaz de reconstruir mel-espectrogramas a partir de entradas con un alto
-porcentaje de información eliminada, recuperando estructuras como armónicos y formantes. La interfaz
-reporta métricas cuantitativas de la reconstrucción (MSE y SNR) y permite visualizar lado a lado el
-espectrograma original, el enmascarado y el reconstruido.
+As a result, the model is capable of reconstructing mel-spectrograms from inputs with a high
+percentage of information removed, recovering structures such as harmonics and formants. The interface
+reports quantitative metrics for the reconstruction (MSE and SNR) and allows for side-by-side visualization of the
+original, masked, and reconstructed spectrograms.
 
 ---
 
-## 2. Introducción
+## 2. Introduction
 
-### Artículo base
+### Original Paper
 
-- **Título:** *Masked Autoencoders that Listen*
-- **Autores:** Po-Yao Huang, Hu Xu, Juncheng Li, Alexei Baevski, Michael Auli, Wojciech Galuba,
+- **Title:** *Masked Autoencoders that Listen*
+- **Authors:** Po-Yao Huang, Hu Xu, Juncheng Li, Alexei Baevski, Michael Auli, Wojciech Galuba,
   Florian Metze, Christoph Feichtenhofer (Meta AI, Carnegie Mellon University)
-- **Publicación:** NeurIPS 2022
-- **Enlace al artículo:** https://arxiv.org/abs/2207.06405
-- **Repositorio original:** https://github.com/facebookresearch/AudioMAE
+- **Publication:** NeurIPS 2022
+- **Link to the paper:** https://arxiv.org/abs/2207.06405
+- **Original repository:** https://github.com/facebookresearch/AudioMAE
 
-### Contexto del problema
+### Problem Context
 
-El audio es un tipo de dato secuencial complejo. Tradicionalmente, los modelos de audio se inicializaban
-con pesos pre-entrenados en imágenes (ImageNet), lo cual es subóptimo porque un espectrograma y una
-imagen natural tienen propiedades muy distintas. Además, los Transformers tienen un costo computacional
-**cuadrático** respecto a la longitud de la secuencia, lo que dificulta entrenar con secuencias largas
-de audio.
+Audio is a complex type of sequential data. Traditionally, audio models were initialized
+with weights pre-trained on images (ImageNet), which is suboptimal because a spectrogram and a
+natural image have very different properties. Furthermore, Transformers have a computational cost
+that is **quadratic** with respect to the sequence length, making it difficult to train on long
+audio sequences.
 
-### Motivación
+### Motivation
 
-AudioMAE resuelve ambos problemas. Por un lado, hace **pre-entrenamiento auto-supervisado solo con
-audio** (sin etiquetas ni datos de otra modalidad). Por otro, al enmascarar y descartar la mayoría de
-los parches, el encoder procesa solo una pequeña fracción de la secuencia, reduciendo drásticamente el
-cómputo. Con esto, el modelo alcanza el estado del arte en seis tareas de clasificación de audio y voz.
+AudioMAE solves both problems. On the one hand, it performs **self-supervised pre-training using only
+audio** (without labels or data from other modalities). On the other hand, by masking and discarding most of
+the patches, the encoder processes only a small fraction of the sequence, drastically reducing the
+computational cost. As a result, the model achieves state-of-the-art performance on six audio and speech classification tasks.
 
-### Objetivo
+### Objective
 
-Comprender en profundidad la arquitectura Transformer encoder–decoder de AudioMAE, implementar su
-proceso de inferencia usando los pesos pre-entrenados, y construir una herramienta de visualización
-interactiva que permita cargar audio propio y observar el funcionamiento del modelo.
+To gain an in-depth understanding of AudioMAE’s Transformer encoder–decoder architecture, implement its
+inference process using the pre-trained weights, and build an interactive visualization tool
+that allows users to upload their own audio and observe how the model works.
 
 ---
 
-## 3. Marco teórico
+## 3. Theoretical Framework
 
-### 3.1 La arquitectura general
+### 3.1 The General Architecture
 
-AudioMAE es una extensión al dominio del audio del modelo MAE de imágenes. Su flujo es:
+AudioMAE is an extension of the image-based MAE model to the audio domain. Its workflow is as follows:
 
 ```
 Audio (.wav)
    |
-Mel-Espectrograma  (1024 frames de tiempo x 128 bandas mel)
+Mel-Spectrogram  (1024 time frames × 128 mel bands)
    |
-División en parches de 16x16  ->  512 parches en total
+Division into 16×16 patches  ->  512 patches in total
    |
-Enmascaramiento aleatorio (por ejemplo, se oculta el 75%)
+Random masking (for example, 75% is hidden)
    |
-ENCODER (ViT-Base, 12 capas, dim 768, 12 cabezas)
-   Procesa SOLO los parches visibles (~25%)
+ENCODER (ViT-Base, 12 layers, 768-dimensional, 12 heads)
+   Processes ONLY the visible patches (~25%)
    |
-   Latentes de los parches visibles
+   Latent representations of the visible patches
    |
-DECODER (Transformer, 16 capas, dim 512, atención local con ventanas desplazadas)
-   Recibe los latentes + "mask tokens" en las posiciones ocultas
-   Reordena la secuencia y reconstruye cada parche oculto
+DECODER (Transformer, 16 layers, dim 512, local attention with shifted windows)
+   Receives the latent representations + “mask tokens” at the hidden positions
+   Reorders the sequence and reconstructs each hidden patch
    |
-Mel-Espectrograma reconstruido (1024 x 128)
+Reconstructed Mel-Spectrogram (1024 x 128)
 ```
 
-La entrada y la salida del modelo son mel-espectrogramas. El objetivo de entrenamiento es minimizar el
-**error cuadrático medio (MSE)** entre los parches reconstruidos y los originales, calculado únicamente
-sobre los parches que fueron ocultados.
+The model’s input and output are mel-spectrograms. The training objective is to minimize the
+**mean squared error (MSE)** between the reconstructed patches and the originals, calculated solely
+on the patches that were hidden.
 
-### 3.2 El mecanismo de atención
+### 3.2 The Attention Mechanism
 
-El núcleo del Transformer es la **auto-atención (self-attention)**. Permite que cada parche del
-espectrograma "mire" a todos los demás parches y decida de cuáles tomar más información. La fórmula es:
+The core of the Transformer is **self-attention**. It allows each patch of the
+spectrogram to “look” at all the other patches and decide which ones to gather more information from. The formula is:
 
 ```
 Attention(Q, K, V) = softmax( (Q · K^T) / sqrt(d_k) ) · V
 ```
 
-donde `d_k = 64` (768 dimensiones repartidas entre 12 cabezas). El factor `sqrt(d_k)` en el
-denominador evita que los productos crezcan demasiado y saturen el softmax (lo que dejaría gradientes
-casi nulos durante el entrenamiento).
+where `d_k = 64` (768 dimensions distributed across 12 heads). The factor `sqrt(d_k)` in the
+denominator prevents the products from growing too large and saturating the softmax (which would result in
+nearly zero gradients during training).
 
-El modelo usa **atención multi-cabeza (Multi-Head Attention)**: en lugar de una sola atención, ejecuta
-12 atenciones en paralelo y concatena sus resultados. Cada cabeza puede especializarse en distintos
-patrones, por ejemplo relaciones de baja frecuencia, transiciones de inicio/fin de sonido, o armónicos
-periódicos.
+The model uses **multi-head attention**: instead of a single attention mechanism, it runs
+12 attention mechanisms in parallel and concatenates their results. Each head can specialize in different
+patterns, such as low-frequency relationships, sound start/end transitions, or periodic
+harmonics.
 
-### 3.3 Generación de los tensores Q, K y V
+### 3.3 Generation of the Q, K, and V Tensors
 
-Dado un tensor de entrada `X` con forma `(N, 768)` (N parches, 768 dimensiones cada uno), cada parche
-genera tres vectores mediante proyecciones lineales aprendidas durante el entrenamiento:
+Given an input tensor `X` of shape `(N, 768)` (N patches, 768 dimensions each), each patch
+generates three vectors using linear projections learned during training:
 
 ```
-Q = X · W_Q    Query  -> "qué estoy buscando"
-K = X · W_K    Key    -> "cómo me identifico para ser encontrado"
-V = X · W_V    Value  -> "qué información aporto"
+Q = X · W_Q    Query  -> “what am I looking for”
+K = X · W_K    Key    -> “how do I identify myself so I can be found”
+V = X · W_V    Value  -> “what information do I provide”
 ```
 
-- **Q (Query):** lo que un parche necesita de los demás para construir su salida.
-- **K (Key):** la "etiqueta" con la que cada parche se anuncia frente a los demás.
-- **V (Value):** el contenido real que un parche entrega cuando es atendido.
+- **Q (Query):** what a patch needs from the others to construct its output.
+- **K (Key):** the “label” each patch uses to identify itself to the others.
+- **V (Value):** the actual content a patch provides when it is selected.
 
-El producto `Q · K^T` mide la afinidad entre cada par de parches; el softmax la convierte en pesos que
-suman 1; y finalmente esos pesos se aplican sobre `V` para obtener la salida ponderada. En la práctica,
-las tres proyecciones se calculan juntas con una sola capa lineal `nn.Linear(dim, dim*3)` y luego se
-separan en Q, K y V.
+The product `Q · K^T` measures the affinity between each pair of patches; the softmax function converts this into weights that
+sum to 1; and finally, those weights are applied to `V` to obtain the weighted output. In practice,
+the three projections are calculated together using a single linear layer `nn.Linear(dim, dim*3)` and then
+separated into Q, K, and V.
 
-### 3.4 Innovaciones del modelo
+### 3.4 Model Innovations
 
-1. **Ratio de enmascaramiento muy alto (75–80 %).** A diferencia de BERT en texto (15 %), el audio
-   tiene mucha redundancia, por lo que ocultar la mayoría obliga al modelo a aprender representaciones
-   ricas en lugar de copiar de vecinos cercanos.
-2. **Encoder asimétrico y eficiente.** El encoder solo procesa los parches visibles, no los ocultos,
-   reduciendo el cómputo alrededor de un 75 %. Esto permite usar un encoder grande (ViT-Base) a un
-   costo razonable.
-3. **Decoder profundo con atención local (shifted window).** A diferencia del MAE de imágenes (que
-   usa un decoder pequeño de 8 capas con atención global), Audio-MAE emplea un decoder de **16 capas**
-   con atención por ventanas locales desplazadas. La razón: en un espectrograma la posición en tiempo
-   y frecuencia sí importa (formantes y armónicos están agrupados localmente), por lo que la atención
-   local es más adecuada que la global. Como cada capa atiende solo a una ventana pequeña (4×4 parches
-   en lugar de los 64×8 globales), se pueden apilar más capas con poco costo extra, lo que mejora la
-   reconstrucción. El paper muestra que con atención global lo óptimo serían 8 capas, pero con atención
-   local lo es 16.
-4. **Pre-entrenamiento solo con audio.** No depende de datos de imagen (ImageNet); los autores muestran
-   que el pre-entrenamiento dentro del mismo dominio (audio) da mejores resultados que transferir desde
-   imágenes.
-5. **Objetivo de reconstrucción simple.** Solo se usa la pérdida MSE; añadir objetivos contrastivos no
-   mejora los resultados.
+1. **Very high masking ratio (75–80%).** Unlike BERT for text (15%), audio
+   has a lot of redundancy, so masking most of it forces the model to learn rich representations
+   rather than copying from nearby neighbors.
+2. **Efficient, asymmetric encoder.** The encoder processes only the visible patches, not the hidden ones,
+   reducing computational cost by about 75%. This allows for the use of a large encoder (ViT-Base) at a
+   reasonable cost.
+3. **Deep decoder with local attention (shifted window).** Unlike image MAE (which
+   uses a small 8-layer decoder with global attention), Audio-MAE employs a **16-layer** decoder
+   with shifted local window attention. The reason: in a spectrogram, position in time
+   and frequency does matter (formants and harmonics are clustered locally), so local attention
+   is more appropriate than global attention. Since each layer attends only to a small window (4×4 patches
+   instead of the global 64×8), more layers can be stacked at little extra cost, which improves
+   reconstruction. The paper shows that with global attention, 8 layers would be optimal, but with
+   local attention, 16 layers are optimal.
+4. **Pre-training with audio only.** It does not rely on image data (ImageNet); the authors show
+   that pre-training within the same domain (audio) yields better results than transfer learning from
+   images.
+5. **Simple reconstruction objective.** Only the MSE loss is used; adding contrastive objectives does not
+   improve the results.
 
 ---
 
-## 4. Metodología
+## 4. Methodology
 
-### Herramientas utilizadas
+### Tools used
 
 - **Python 3.10**
-- **PyTorch** y **torchaudio** — definición del modelo e inferencia.
-- **timm 0.4.12** — bloques de Vision Transformer requeridos por el repositorio original.
-- **soundfile** y **librosa** — lectura y manejo de audio.
-- **Streamlit** — interfaz gráfica interactiva.
-- **matplotlib** y **numpy** — visualización y cálculo de métricas.
+- **PyTorch** and **torchaudio** — model definition and inference.
+- **timm 0.4.12** — Vision Transformer blocks required by the original repository.
+- **soundfile** and **librosa** — audio reading and handling.
+- **Streamlit** — interactive graphical interface.
+- **matplotlib** and **numpy** — visualization and metric calculation.
 
-### Uso de pesos pre-entrenados
+### Using Pre-trained Weights
 
-El proyecto no entrena ningún modelo. Se carga el repositorio oficial de AudioMAE como código base y se
-le aplican parches automáticos de compatibilidad (en [core/model_loader.py](core/model_loader.py))
-para que funcione con versiones modernas de las librerías y en Windows:
+This project does not train any models. The official AudioMAE repository is loaded as the codebase, and
+automatic compatibility patches are applied (in [core/model_loader.py](core/model_loader.py))
+to make it work with modern versions of the libraries and on Windows:
 
-- Se desactiva un import de `SwinTransformerBlock` no disponible en la versión de timm usada.
-- Se reemplaza `torch._six.inf` por `math.inf`.
-- Se corrige `np.float` (eliminado en NumPy moderno).
-- Se ajusta una llamada `.cuda()` fija para que use el dispositivo disponible (CPU o GPU).
-- Se adapta `PosixPath` a `WindowsPath` para cargar el checkpoint.
+- An import of `SwinTransformerBlock`—which is not available in the version of timm used—is disabled.
+- `torch._six.inf` is replaced with `math.inf`.
+- `np.float` (removed in modern NumPy) is corrected.
+- A fixed `.cuda()` call is adjusted to use the available device (CPU or GPU).
+- `PosixPath` is adapted to `WindowsPath` to load the checkpoint.
 
-Los pesos (encoder ViT-Base pre-entrenado sobre AudioSet-2M) se descargan desde un enlace de Google
-Drive y se cargan con `torch.load`. La carga se hace una sola vez gracias a `st.cache_resource`.
+The weights (a ViT-Base encoder pre-trained on AudioSet-2M) are downloaded from a Google
+Drive link and loaded using `torch.load`. Loading is performed only once thanks to `st.cache_resource`.
 
-### Organización del código
+### Code Organization
 
 ```
 Audio-Mae-Implementation/
@@ -206,156 +204,153 @@ Audio-Mae-Implementation/
 │   └── AudioMAE_Reconstruction_Demo.ipynb
 └── AudioMAE/                   # Repositorio oficial clonado (código base + pesos)
 ```
-
 ---
 
-## 5. Desarrollo e implementación
+## 5. Development and Implementation
 
-### Pasos para ejecutar el proyecto
+### Steps to run the project
 
 ```bash
-# 1. Clonar el repositorio oficial de AudioMAE dentro de la carpeta del proyecto
+# 1. Clone the official AudioMAE repository into the project folder
 git clone https://github.com/facebookresearch/AudioMAE.git
 
-# 2. Instalar las dependencias
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Descargar los pesos pre-entrenados (ViT-B, AudioSet-2M, ~330 MB) desde:
+# 3. Download the pre-trained weights (ViT-B, AudioSet-2M, ~330 MB) from:
 #    https://drive.google.com/file/d/1ni_DV4dRf7GxM8k-Eirx71WP9Gg89wwu
-#    y guardarlos en:  AudioMAE/ckpt/pretrained.pth
+#    and save them to:  AudioMAE/ckpt/pretrained.pth
 
-# 4. Lanzar la aplicación
+# 4. Run the application
 streamlit run app.py
 ```
 
-### Cómo se cargan los pesos
+### How the weights are loaded
 
-La función `load_model` en [core/model_loader.py](core/model_loader.py):
+The `load_model` function in [core/model_loader.py](core/model_loader.py):
 
-1. Localiza el repositorio `AudioMAE/` y lo agrega al path de Python.
-2. Aplica los parches de compatibilidad descritos en la metodología.
-3. Construye la arquitectura con `models_mae.mae_vit_base_patch16(in_chans=1, audio_exp=True, img_size=(1024,128))`.
-4. Carga el archivo `.pth` con `torch.load(..., map_location="cpu")`, extrae el diccionario de pesos y
-   lo asigna con `load_state_dict(strict=False)`.
-5. Mueve el modelo a GPU si está disponible y lo pone en modo `eval()`.
+1. Locates the `AudioMAE/` repository and adds it to the Python path.
+2. Applies the compatibility patches described in the methodology.
+3. Constructs the architecture using `models_mae.mae_vit_base_patch16(in_chans=1, audio_exp=True, img_size=(1024,128))`.
+4. Load the `.pth` file with `torch.load(..., map_location="cpu")`, extract the weight dictionary, and
+   load it with `load_state_dict(strict=False)`.
+5. Move the model to the GPU if available and set it to `eval()` mode.
 
-### Preprocesamiento
+### Preprocessing
 
-En [core/preprocessing.py](core/preprocessing.py), siguiendo los parámetros exactos del artículo:
+In [core/preprocessing.py](core/preprocessing.py), following the exact parameters from the paper:
 
-1. Se lee el `.wav` y se convierte a mono.
-2. Se elimina el offset de continua (normalización DC).
-3. Si el audio dura menos de ~10 s, se repite cíclicamente (evita el padding con ceros, que degrada la
-   reconstrucción).
-4. Se calcula el banco de filtros mel **Kaldi FBANK** con 128 bandas, ventana Hanning de 25 ms y salto
-   de 10 ms.
-5. Se recorta o rellena a exactamente **1024 frames × 128 bandas**.
-6. Se normaliza con la media (−4.268) y desviación estándar (4.569) del artículo.
+1. Read the `.wav` file and convert it to mono.
+2. Remove the DC offset (DC normalization).
+3. If the audio is shorter than ~10 s, it is looped cyclically (to avoid padding with zeros, which degrades
+   reconstruction).
+4. The **Kaldi FBANK** mel filter bank is computed with 128 bands, a 25-ms Hanning window, and a
+   10-ms step size.
+5. It is cropped or padded to exactly **1024 frames × 128 bands**.
+6. It is normalized using the mean (−4.268) and standard deviation (4.569) from the paper.
 
-El resultado es el tensor de entrada del modelo con forma `(1, 1, 1024, 128)` = `(batch, canal, tiempo, frecuencia)`.
+The result is the model’s input tensor with shape `(1, 1, 1024, 128)` = `(batch, channel, time, frequency)`.
 
-### Proceso de inferencia
+### Inference Process
 
-**Reconstrucción** ([core/reconstruction.py](core/reconstruction.py)):
+**Reconstruction** ([core/reconstruction.py](core/reconstruction.py)):
 
-1. Se pasa el espectrograma normalizado por `model(x, mask_ratio)`, que internamente parchea, enmascara,
-   codifica con el encoder y reconstruye con el decoder.
-2. Con `model.unpatchify(...)` se reconstruye el espectrograma 2D a partir de los parches predichos.
-3. Se expande la máscara binaria a la resolución del espectrograma para poder visualizar qué se ocultó.
-4. Se calculan las métricas: pérdida MSE en parches ocultos, MSE global, SNR (relación señal/ruido en dB)
-   y el porcentaje real enmascarado.
+1. The normalized spectrogram is passed through `model(x, mask_ratio)`, which internally patches, masks,
+   encodes with the encoder, and reconstructs with the decoder.
+2. Using `model.unpatchify(...)`, the 2D spectrogram is reconstructed from the predicted patches.
+3. The binary mask is expanded to the spectrogram’s resolution to visualize what was hidden.
+4. The metrics are calculated: MSE loss on hidden patches, global MSE, SNR (signal-to-noise ratio in dB),
+   and the actual percentage masked.
 
-**Clasificación** ([core/classification.py](core/classification.py)):
+**Classification** ([core/classification.py](core/classification.py)):
 
-1. Se pasa el espectrograma por `model.forward_encoder(x, mask_ratio=0.0)` (sin ocultar nada, el
-   encoder ve todos los parches).
-2. Se hace *mean pooling* sobre los parches (sin el token CLS) para obtener un embedding global de 768
-   dimensiones, que se normaliza con norma L2.
-3. Ese embedding pasa por una capa lineal para producir logits y probabilidades por clase. Como no se
-   hizo fine-tuning, esta capa es aleatoria con semilla fija (42); sirve para demostrar la geometría del
-   espacio latente, no como clasificador final entrenado.
+1. The spectrogram is passed through `model.forward_encoder(x, mask_ratio=0.0)` (without masking anything; the
+   encoder sees all patches).
+2. *Mean pooling* is performed on the patches (excluding the CLS token) to obtain a global embedding of 768
+   dimensions, which is normalized using L2 norm.
+3. That embedding passes through a linear layer to produce logits and probabilities per class. Since no
+   fine-tuning was performed, this layer is random with a fixed seed (42); it serves to demonstrate the geometry of the
+   latent space, not as a trained final classifier.
 
 ---
 
-## 6. Resultados y análisis
+## 6. Results and Analysis
 
-### Reconstrucción
 
-La página de reconstrucción muestra cuatro paneles lado a lado:
 
-| Panel | Qué muestra |
+### Reconstruction
+
+The reconstruction page displays four panels side by side:
+
+| Panel | What it shows |
 |-------|-------------|
-| (a) Original | Mel-espectrograma real del audio de entrada |
-| (b) Enmascarado | Lo que ve el encoder: los parches ocultos aparecen en zona neutra |
-| (c) Combinación | Parches visibles originales + parches reconstruidos por el decoder |
-| (d) Solo reconstruido | Salida pura del decoder |
+| (a) Original | Actual Mel-spectrogram of the input audio |
+| (b) Masked | What the encoder sees: hidden patches appear in the neutral zone |
+| (c) Combination | Original visible patches + patches reconstructed by the decoder |
+| (d) Reconstructed Only | Pure output from the decoder |
 
-La interfaz reporta las siguientes métricas para cada inferencia:
+The interface reports the following metrics for each inference:
 
-- **Loss (MSE en parches ocultos):** error de reconstrucción solo en lo que el modelo no vio.
-- **MSE Global:** error promedio sobre todo el espectrograma.
-- **SNR (dB):** relación señal/ruido de la reconstrucción; valores más altos indican mejor calidad.
-- **% real enmascarado:** porcentaje efectivo de parches ocultados.
+- **Loss (MSE on hidden patches):** reconstruction error limited to what the model did not see.
+- **Global MSE:** average error across the entire spectrogram.
+- **SNR (dB):** signal-to-noise ratio of the reconstruction; higher values indicate better quality.
+- **% effectively masked:** effective percentage of hidden patches.
 
-**Análisis esperado:** al aumentar el `mask_ratio`, la tarea se vuelve más difícil, el MSE tiende a subir
-y el SNR a bajar. Aun con 75–80 % de parches ocultos, el modelo recupera estructuras globales como
-armónicos (líneas horizontales en frecuencia) y la envolvente temporal del sonido. Los sonidos con
-patrones repetitivos (música, eventos) se reconstruyen mejor que la voz, que es más impredecible —
-coincidiendo con lo reportado en el artículo.
-
-```
-[ Pendiente imagen: paneles de reconstrucción + tabla de métricas ]
-```
-
-### Clasificación
-
-La página de clasificación muestra el embedding del encoder, las probabilidades por clase y la clase
-con mayor puntaje, junto con la norma L2 del embedding.
-
-**Análisis esperado:** como la cabeza de clasificación no está entrenada (capa lineal aleatoria), las
-predicciones no son fiables como etiquetas reales. El valor de esta sección es **demostrativo**: muestra
-que el encoder produce un embedding global estable y de dimensión 768 a partir de cualquier audio, que
-es justo lo que se usaría como punto de partida para un fine-tuning supervisado.
+**Expected analysis:** as `mask_ratio` increases, the task becomes more difficult, MSE tends to rise,
+and SNR tends to fall. Even with 75–80% of patches hidden, the model recovers global structures such as
+harmonics (horizontal lines in the frequency domain) and the temporal envelope of the sound. Sounds with
+repetitive patterns (music, events) are reconstructed better than speech, which is more unpredictable—
+consistent with what is reported in the paper.
 
 ```
-[ Pendiente imagen de embedding + barras de probabilidad por clase ]
+[ Image pending: reconstruction panels + metrics table ]
 ```
+
+### Classification
+
+The classification page shows the encoder embedding, the probabilities per class, and the class
+with the highest score, along with the L2 norm of the embedding.
+
+**Expected analysis:** Since the classification head is not trained (random linear layer), the
+predictions are not reliable as actual labels. The value of this section is **demonstrative**: it shows
+that the encoder produces a stable, 768-dimensional global embedding from any audio, which
+is exactly what would be used as a starting point for supervised fine-tuning.
 
 ---
 
-## 7. Conclusiones
+## 7. Conclusions
 
-### Aprendizajes
+### Key Takeaways
 
-- Se comprendió cómo un mismo principio (enmascarar y reconstruir) aplicado en BERT (texto) y MAE
-  (imágenes) se extiende al audio mediante espectrogramas.
-- Se entendió en detalle el flujo de un Transformer encoder–decoder: parcheo, generación de Q/K/V,
-  atención escalada multi-cabeza, y reconstrucción a partir de tokens de máscara.
-- Se vio el valor de la **asimetría** del modelo: un encoder que procesa solo lo visible permite usar
-  Transformers grandes con un costo manejable.
+- We understood how the same principle (masking and reconstruction) applied in BERT (text) and MAE
+  (images) extends to audio via spectrograms.
+- We gained a detailed understanding of the Transformer encoder–decoder workflow: patching, Q/K/V generation,
+  multi-head scaled attention, and reconstruction from masked tokens.
+- We saw the value of the model’s **asymmetry**: an encoder that processes only the visible portion allows for the use of
+  large Transformers at a manageable cost.
 
-### Limitaciones
+### Limitations
 
-- **Resolución fija:** el modelo espera exactamente 1024 × 128; audios de otra duración se recortan o
-  repiten, lo que introduce artefactos.
-- **La salida es un espectrograma, no audio:** para escuchar el resultado se necesitaría un vocoder
-  (por ejemplo, Griffin-Lim o HiFi-GAN).
-- **Clasificación sin entrenar:** la capa lineal es aleatoria, por lo que no refleja la capacidad real
-  del encoder sin fine-tuning.
-- **Costo computacional:** la inferencia es cómoda con GPU; en CPU es más lenta, y el checkpoint pesa
+- **Fixed resolution:** the model expects exactly 1024 × 128; audio clips of other durations are cropped or
+  repeated, which introduces artifacts.
+- **The output is a spectrogram, not audio:** to hear the result, a vocoder would be needed
+  (e.g., Griffin-Lim or HiFi-GAN).
+- **Classification without training:** The linear layer is random, so it does not reflect the actual capability
+  of the encoder without fine-tuning.
+- **Computational cost:** Inference runs smoothly on a GPU; on a CPU it is slower, and the checkpoint is
   ~330 MB.
 
-### Posibles mejoras
+### Possible Improvements
 
-- Integrar un vocoder para reproducir el audio reconstruido.
-- Hacer fine-tuning del encoder con un dataset etiquetado (por ejemplo ESC-50) para obtener clasificación
-  real.
-- Permitir audios de duración variable mediante ventanas deslizantes.
-- Visualizar los mapas de atención de las cabezas del encoder para análisis interpretativo.
+- Integrate a vocoder to play back the reconstructed audio.
+- Fine-tune the encoder using a labeled dataset (e.g., ESC-50) to obtain
+  accurate classification.
+- Support audio of variable duration using sliding windows.
+- Visualize the attention maps of the encoder heads for interpretive analysis.
 
 ---
 
-## 8. Referencias
+## 8. References
 
 [1] P.-Y. Huang, H. Xu, J. Li, A. Baevski, M. Auli, W. Galuba, F. Metze, and C. Feichtenhofer,
 "Masked Autoencoders that Listen," in *Proc. 36th Conf. Neural Information Processing Systems (NeurIPS)*,
